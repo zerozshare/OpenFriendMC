@@ -1,78 +1,95 @@
-# OpenFriend
+# OpenFriend — Source Mirror
 
-Bridge Minecraft Java Edition's Friends List (snapshot 26.2+) to any TCP Minecraft server, online-mode included.
+[![Join our Discord](https://img.shields.io/badge/Discord-Join%20the%20community-5865F2?style=for-the-badge&logo=discord&logoColor=white)](https://discord.gg/YRTyXEwVsE)
 
-Official site: **https://openfriend.net/**
-Team: **ZSHARE** ([zpw.jp](https://zpw.jp))
+Come chat, ask questions, share builds, and shape the roadmap.
 
-## What it does
+> ## ⚠️ Unofficial — not affiliated with Microsoft, Mojang, or the Xbox brand
+>
+> OpenFriend is an **independent, community-built** project. It is **not** developed, endorsed, supported, sponsored, certified, or otherwise officially connected to Microsoft Corporation, Mojang AB, Mojang Studios, or the Xbox brand. "Minecraft", "Xbox", "Xbox Live", "Microsoft", and "Mojang" are trademarks of their respective owners. Use on accounts and servers you control. You assume all risk.
 
-OpenFriend lets your friends join your Minecraft server through the in-game **Friends List** (introduced in Java Edition snapshot 26.2). Three components, mix and match:
+> ## 🚧 Current scope: offline-mode servers only
+>
+> Bridges Friends-List joins to **offline-mode** Minecraft servers. Online-mode bypass is implemented but **not yet verified end-to-end** (waiting for Paper / Spigot to release a build for snapshot 26.2). Use `online-mode=false` on the backend until the bypass is certified.
 
-| Component | What it does |
+---
+
+This folder is the open-source mirror of the three OpenFriend components, organized as three independent repositories ready to publish on GitHub.
+
+| Directory | What goes on GitHub |
 |---|---|
-| **OpenFriend Core** (CLI / Go binary) | Authenticates with your Microsoft account, broadcasts presence, accepts incoming Friends-List joins, and bridges the WebRTC data channel to a real Minecraft server |
-| **OpenFriend Plugin** (Spigot / Paper / Velocity) | Drops the Core binary into your server, starts it as a managed subprocess, surfaces status in chat for OPs |
-| **OpenFriend Bypass** (Spigot / Paper) | Optional. Skips encryption auth on **online-mode** servers for Friends-List-routed connections (Floodgate-style) |
+| `OpenFriendCore/` | Go binary source (the CLI) |
+| `OpenFriendPlugin/` | Spigot / Paper bridge plugin + Velocity plugin (Gradle multi-module) |
+| `OpenFriendBypass/` | Online-mode auth bypass plugin (Gradle multi-module) |
 
-## Quick start
+Each directory builds independently. No project-wide build script is included on purpose.
 
-### CLI (standalone)
+## Building
+
+### OpenFriendCore (Go)
 
 ```
-./openfriend --target 127.0.0.1:25565
+cd OpenFriendCore
+make build        # local binary
+make dist         # cross-compile macOS / Linux / Windows × amd64/arm64
 ```
 
-First run prints a Microsoft device code. Authenticate once, the token is encrypted to your machine and reused.
+Requires Go 1.24+.
 
-### Plugin (Spigot / Paper / Velocity)
+### OpenFriendPlugin (Java)
 
-1. Drop these into `plugins/`:
-   - `OpenFriend-spigot-<MCver>.jar` (bridge plugin, or `OpenFriend-velocity-*.jar` for Velocity)
-   - `OpenFriendBypass-<MCver>.jar` (optional, for online-mode servers)
-   - `packetevents.jar` (required when using the Bypass plugin)
-2. Start the server. The plugin extracts the Core binary, generates `bypass.pem`, and prompts you to restart.
-3. Restart. OPs see a status report in chat on login.
+```
+cd OpenFriendPlugin
+./gradlew :commons:jar :spigot:jar :velocity:jar \
+    -Pmc.version=1.21.4 \
+    -Pjava.release=21 \
+    -Pspigot.api=1.21.4-R0.1-SNAPSHOT \
+    -Pplugin.version=0.1.0
+```
 
-## Status
+For each Minecraft target version, change `mc.version`, `java.release` (8/16/17/21), and `spigot.api`. JDK 21 is the build toolchain.
 
-OpenFriend is currently in **test mode**. Feature matrix:
+### OpenFriendBypass (Java)
 
-| | Standalone CLI | Plugin (Spigot/Velocity) | Mod (Forge/Fabric/NeoForge) |
-|---|:---:|:---:|:---:|
-| Microsoft authentication | ✓ | ✓ | — |
-| Presence broadcasting | ✓ | ✓ | — |
-| Friends list management | ✓ | ✓ | — |
-| Skin upload | ✓ | ✓ | — |
-| Host mode (accept joins) | ✓ | ✓ | — |
-| Join mode (join a friend) | ✓ | — | — |
-| Offline-mode backend | ✓ | ✓ | — |
-| Online-mode backend (Bypass) | ✓ | ✓ | — |
-| Machine-bound credential | ✓ | ✓ | — |
-| Auto-update (Core) | ✓ | notify-only | — |
-| Bedrock / Java protocol bridge | ✗ | ✗ | — |
+```
+cd OpenFriendBypass
+./gradlew :bypass:jar \
+    -Pmc.version=1.21.4 \
+    -Pjava.release=21 \
+    -Pspigot.api=1.21.4-R0.1-SNAPSHOT \
+    -Pplugin.version=0.1.0
+```
 
-✓ implemented · ✗ not planned · — not yet built
+Requires JDK 21. Output jar is in `bypass/build/libs/`.
 
-### Coming soon
+## Layout reference
 
-- **Mod** (Forge / Fabric / NeoForge) — bring the same bridging into modded servers and **older Minecraft versions** that don't have the Friends List built in. The idea is to make older Minecraft join newer friends-aware servers (via protocol translation with ViaVersion/ViaBackwards).
-- **Geyser-style protocol translation** so a 1.20.x server can accept a 26.2-snapshot client through OpenFriend.
-- **In-game `/openfriend` commands** for OPs.
-- **Web dashboard** for managing your accounts and server bindings from a browser.
+```
+OpenFriendCore/
+├── cmd/openfriend/        CLI entry point
+├── internal/              Go packages (auth, api, signaling, bridge, ...)
+├── go.mod / go.sum
+├── Makefile
+└── LICENSE
 
-## Open source dependencies — Thanks
+OpenFriendPlugin/
+├── commons/               Shared Java 8 library
+├── spigot/                Bridge plugin (Spigot/Paper)
+├── velocity/              Velocity plugin
+├── gradle/ + gradlew      Gradle wrapper
+├── settings.gradle.kts
+└── LICENSE
 
-- [pion/webrtc](https://github.com/pion/webrtc) — pure Go WebRTC
-- [coder/websocket](https://github.com/coder/websocket) — Go WebSocket client
-- [google/uuid](https://github.com/google/uuid) — UUID handling
-- [denisbrodbeck/machineid](https://github.com/denisbrodbeck/machineid) — cross-platform machine identification
-- [golang.org/x/image](https://pkg.go.dev/golang.org/x/image) — Catmull-Rom image scaling
-- [retrooper/packetevents](https://github.com/retrooper/packetevents) — cross-version Bukkit packet manipulation
-- Mojang's protocol design — referenced for compatibility (no Mojang code is shipped here)
+OpenFriendBypass/
+├── commons/               (Same shared library as OpenFriendPlugin)
+├── bypass/                Bypass plugin
+├── gradle/ + gradlew
+├── settings.gradle.kts
+└── LICENSE
+```
 
 ## License
 
-MIT. See [LICENSE](LICENSE).
+MIT. See `LICENSE` in each directory.
 
-"Minecraft", "Xbox", "Xbox Live", and related marks are trademarks of Microsoft Corporation and Mojang AB. OpenFriend is **not affiliated with, endorsed by, or sponsored by** Microsoft Corporation, Mojang AB, or the Xbox brand.
+"Minecraft", "Xbox", "Xbox Live", "Microsoft", and "Mojang" are trademarks of their respective owners. OpenFriend is not affiliated with, endorsed by, sponsored by, or in any way officially connected to Microsoft Corporation, Mojang AB, or the Xbox brand.
