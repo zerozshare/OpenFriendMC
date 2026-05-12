@@ -1,8 +1,0 @@
-name: OpenFriendBypass
-version: 0.1.0
-main: jp.zpw.openfriend.bypass.BypassPlugin
-author: ZSHARE
-description: Online-mode auth bypass for OpenFriend-routed connections.
-website: https://github.com/zerozshare/OpenFriendMC
-depend: []
-softdepend: [packetevents]
