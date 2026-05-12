@@ -1,1 +1,0 @@
-{"id":"openfriend","name":"OpenFriend","version":"0.1.0","description":"Bridge Minecraft Java Friends List joins (snapshot 26.2+) to a backend server.","url":"https://github.com/zerozshare/OpenFriendMC","authors":["ZSHARE"],"dependencies":[],"main":"jp.zpw.openfriend.velocity.OpenFriendVelocityPlugin"}

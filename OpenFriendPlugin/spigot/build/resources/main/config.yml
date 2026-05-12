@@ -1,8 +1,0 @@
-enabled: true
-target: 127.0.0.1:25565
-interval-s: 30
-no-auto-accept: false
-verbose: false
-skin:
-  file: ""
-  variant: classic

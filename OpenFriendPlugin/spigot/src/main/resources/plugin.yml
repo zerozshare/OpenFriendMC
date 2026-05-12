@@ -1,6 +1,0 @@
-name: OpenFriend
-version: ${pluginVersion}
-main: jp.zpw.openfriend.spigot.OpenFriendPlugin
-author: ZSHARE
-description: Bridge Minecraft Java Friends List joins (snapshot 26.2+) to this server.
-website: https://github.com/zerozshare/OpenFriendMC
