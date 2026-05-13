@@ -2,6 +2,8 @@
 
 [Download Now](https://github.com/zerozshare/OpenFriendMC/releases/tag/v1.0.0)
 
+## Demo Video
+[![OpenFriend Demo Video](https://img.youtube.com/vi/-ohkXjGHMnY/maxresdefault.jpg)](https://www.youtube.com/watch?v=-ohkXjGHMnY)
 Bridge Minecraft Java Edition's Friends List (snapshot 26.2+) to any TCP Minecraft server.
 
 This repository (**[zerozshare/OpenFriendMC](https://github.com/zerozshare/OpenFriendMC)**) is the central distribution point. **All release assets — Core binaries, OpenFriend plugin jars, OpenFriendBypass plugin jars — are uploaded here under [Releases](https://github.com/zerozshare/OpenFriendMC/releases).** The Go binary's auto-update feature pulls from this repo by name. Source code for each component lives in its own repository (see the table below).
