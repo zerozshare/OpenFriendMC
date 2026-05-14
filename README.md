@@ -88,7 +88,6 @@ OpenFriend is currently in **test mode**. Feature matrix:
 - **Real player skin heads on legacy MC versions (1.16.5 – 1.19.x)** — currently shows a hashed-color placeholder.
 - **Geyser-style protocol translation** so a 1.20.x server can accept a 26.2-snapshot client through OpenFriend.
 - **In-game `/openfriend` commands** for OPs.
-- **Web dashboard** for managing your accounts and server bindings from a browser.
 
 ## Open source dependencies — Thanks
 
