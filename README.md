@@ -1,12 +1,8 @@
 # OpenFriendMC — OpenFriend release hub
 
-[Download Now](https://github.com/zerozshare/OpenFriendMC/releases/tag/v1.0.0)
-
-## [Demo Video](https://www.youtube.com/watch?v=-ohkXjGHMnY)
-
 Bridge Minecraft Java Edition's Friends List (snapshot 26.2+) to any TCP Minecraft server.
 
-This repository (**[zerozshare/OpenFriendMC](https://github.com/zerozshare/OpenFriendMC)**) is the central distribution point. **All release assets — Core binaries, OpenFriend plugin jars, OpenFriendBypass plugin jars — are uploaded here under [Releases](https://github.com/zerozshare/OpenFriendMC/releases).** The Go binary's auto-update feature pulls from this repo by name. Source code for each component lives in its own repository (see the table below).
+This repository (**[zerozshare/OpenFriendMC](https://github.com/zerozshare/OpenFriendMC)**) is the central distribution point. **All release assets — Core binaries, OpenFriend plugin jars, OpenFriendBypass plugin jars, OpenFriend mod jars — are uploaded here under [Releases](https://github.com/zerozshare/OpenFriendMC/releases).** The Go binary's auto-update feature pulls from this repo by name. Source code for each component lives in its own repository (see the table below).
 
 Official site: **https://openfriend.net/**
 Team: **ZSHARE** ([zpw.jp](https://zpw.jp))
@@ -27,13 +23,15 @@ Come chat, ask questions, share builds, and shape the roadmap.
 
 ## What it does
 
-OpenFriend lets your friends join your Minecraft server through the in-game **Friends List** (introduced in Java Edition snapshot 26.2). Three components, mix and match. Source code lives in separate repositories — pre-built artifacts ship here under [Releases](https://github.com/zerozshare/OpenFriendMC/releases).
+OpenFriend lets your friends join your Minecraft server through the in-game **Friends List** (introduced in Java Edition snapshot 26.2). Five independently-shippable components, mix and match. Source code lives in separate repositories — pre-built artifacts ship here under [Releases](https://github.com/zerozshare/OpenFriendMC/releases).
 
 | Component | Source repository | What it does |
 |---|---|---|
 | **OpenFriend Core** (CLI / Go binary) | [zerozshare/OpenFriendCore](https://github.com/zerozshare/OpenFriendCore) | Authenticates with your Microsoft account, broadcasts presence, accepts incoming Friends-List joins, and bridges the WebRTC data channel to a real Minecraft server |
+| **OpenFriend Mod** (Fabric client mod) | [zerozshare/OpenFriendMod](https://github.com/zerozshare/OpenFriendMod) | Brings the snapshot 26.2 Friends List UI to **older Minecraft versions** (1.16.5 – 1.21.11, 30 Fabric builds). Embeds Core as a subprocess; Mod-to-Mod joins work on online-mode servers natively. Forge / NeoForge planned for v1.0.1 |
 | **OpenFriend Plugin** (Spigot / Paper / Velocity) | [zerozshare/OpenFriendPlugin](https://github.com/zerozshare/OpenFriendPlugin) | Drops the Core binary into your server, starts it as a managed subprocess, surfaces status in chat for OPs |
 | **OpenFriend Bypass** (Spigot / Paper) | [zerozshare/OpenFriendBypass](https://github.com/zerozshare/OpenFriendBypass) | Optional. Skips encryption auth on **online-mode** servers for Friends-List-routed connections (Floodgate-style) |
+| **OpenMix** (UI toolkit library) | [zerozshare/OpenMix](https://github.com/zerozshare/OpenMix) | Renderer-agnostic Java UI toolkit extracted from the mod. Powers the mod's overlay across all 30 MC versions; reusable in other projects |
 
 ## Quick start
 
@@ -54,29 +52,40 @@ First run prints a Microsoft device code. Authenticate once, the token is encryp
 2. Start the server. The plugin extracts the Core binary, generates `bypass.pem`, and prompts you to restart.
 3. Restart. OPs see a status report in chat on login.
 
+### Mod (Fabric, 1.16.5 – 1.21.11)
+
+1. Install [Fabric Loader](https://fabricmc.net/use/installer/) for your target Minecraft version.
+2. Drop the matching `OpenFriend-fabric-<MCver>.jar` from the [OpenFriendMod release](https://github.com/zerozshare/OpenFriendMod/releases) into `mods/`.
+3. Launch. A new **Friends** button appears on Title / Pause / Multiplayer screens.
+4. Click it → first run prompts a Microsoft device code (URL + code shown in `latest.log`). After signing in once, your full Friends overlay opens: list / requests / search / host / blocked.
+
+No Fabric API dependency. The Core binary is bundled inside each jar and auto-launches on first use via JSON-RPC stdio. **30 builds** cover MC 1.16.5 → 1.21.11. Forge / NeoForge builds planned for v1.0.1.
+
 ## Status
 
 OpenFriend is currently in **test mode**. Feature matrix:
 
-| | Standalone CLI | Plugin (Spigot/Velocity) | Mod (Forge/Fabric/NeoForge) |
+| | Standalone CLI | Plugin (Spigot/Velocity) | Mod (Fabric) |
 |---|:---:|:---:|:---:|
-| Microsoft authentication | ✓ | ✓ | — |
-| Presence broadcasting | ✓ | ✓ | — |
-| Friends list management | ✓ | ✓ | — |
+| Microsoft authentication | ✓ | ✓ | ✓ |
+| Presence broadcasting | ✓ | ✓ | ✓ |
+| Friends list management | ✓ | ✓ | ✓ |
 | Skin upload | ✓ | ✓ | — |
-| Host mode (accept joins) | ✓ | ✓ | — |
-| Join mode (join a friend) | ✓ | — | — |
-| Offline-mode backend | ✓ | ✓ | — |
-| Online-mode backend (Bypass) | ⚠ unverified | ⚠ unverified | — |
-| Machine-bound credential | ✓ | ✓ | — |
-| Auto-update (Core) | ✓ | notify-only | — |
-| Bedrock / Java protocol bridge | ✗ | ✗ | — |
+| Host mode (accept joins) | ✓ | ✓ | ✓ |
+| Join mode (join a friend) | ✓ | — | ✓ |
+| Offline-mode backend | ✓ | ✓ | ✓ |
+| Online-mode backend | ⚠ via Bypass | ⚠ via Bypass | ✓ native (Mod ↔ Mod) |
+| Machine-bound credential | ✓ | ✓ | ✓ (via Core) |
+| Auto-update (Core) | ✓ | notify-only | bundled |
+| Forge / NeoForge build | — | — | ⏳ v1.0.1 |
+| Bedrock / Java protocol bridge | ✗ | ✗ | ✗ |
 
-✓ implemented · ⚠ implemented but not yet end-to-end verified · ✗ not planned · — not yet built
+✓ implemented · ⚠ implemented but not yet end-to-end verified · ⏳ planned · ✗ not planned · — not applicable
 
 ### Coming soon
 
-- **Mod** (Forge / Fabric / NeoForge) — bring the same bridging into modded servers and **older Minecraft versions** that don't have the Friends List built in. The idea is to make older Minecraft join newer friends-aware servers (via protocol translation with ViaVersion/ViaBackwards).
+- **Forge / NeoForge mod builds** — `common-mc/build.gradle.kts` rework for Architectury multiloader pattern. Tracked for v1.0.1.
+- **Real player skin heads on legacy MC versions (1.16.5 – 1.19.x)** — currently shows a hashed-color placeholder.
 - **Geyser-style protocol translation** so a 1.20.x server can accept a 26.2-snapshot client through OpenFriend.
 - **In-game `/openfriend` commands** for OPs.
 - **Web dashboard** for managing your accounts and server bindings from a browser.
