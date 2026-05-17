@@ -35,7 +35,7 @@ type HostManager struct {
 	bypassKey []byte
 
 	mu       sync.Mutex
-	sessions map[uuid.UUID]*hostSession
+	sessions map[string]*hostSession
 }
 
 func NewHostManager(sig *signaling.Client, target string, bypassKey []byte, logger *slog.Logger) *HostManager {
@@ -47,7 +47,10 @@ func NewHostManager(sig *signaling.Client, target string, bypassKey []byte, logg
 		webrtc.NetworkTypeUDP4,
 		webrtc.NetworkTypeUDP6,
 	})
-	se.SetICETimeouts(3*time.Second, 8*time.Second, 1*time.Second)
+	// Loose enough to survive a heavy modpack login handshake (~30s of
+	// dense bidirectional registry sync), tight enough that abandoned
+	// sessions don't linger forever.
+	se.SetICETimeouts(10*time.Second, 30*time.Second, 2*time.Second)
 	api := webrtc.NewAPI(webrtc.WithSettingEngine(se))
 
 	pm := &HostManager{
@@ -56,7 +59,7 @@ func NewHostManager(sig *signaling.Client, target string, bypassKey []byte, logg
 		logger:    logger,
 		api:       api,
 		bypassKey: bypassKey,
-		sessions:  map[uuid.UUID]*hostSession{},
+		sessions:  map[string]*hostSession{},
 	}
 	sig.SetWebRtcListener(pm.onWebRtc)
 	return pm
@@ -119,11 +122,14 @@ func (p *HostManager) handleOffer(fromPmid uuid.UUID, payload map[string]any) {
 
 func (p *HostManager) startSession(fromPmid uuid.UUID, sid, offerSDP string, turn *signaling.TurnAuth) {
 	cfg := webrtc.Configuration{
-		ICEServers: []webrtc.ICEServer{{
-			URLs:       turn.URLs,
-			Username:   turn.Username,
-			Credential: turn.Password,
-		}},
+		ICEServers: []webrtc.ICEServer{
+			{URLs: []string{"stun:stun.l.google.com:19302"}},
+			{
+				URLs:       turn.URLs,
+				Username:   turn.Username,
+				Credential: turn.Password,
+			},
+		},
 	}
 
 	ps := &hostSession{
@@ -132,10 +138,10 @@ func (p *HostManager) startSession(fromPmid uuid.UUID, sid, offerSDP string, tur
 		pm:       p,
 	}
 	p.mu.Lock()
-	if prev, ok := p.sessions[fromPmid]; ok {
+	if prev, ok := p.sessions[sid]; ok {
 		prev.close()
 	}
-	p.sessions[fromPmid] = ps
+	p.sessions[sid] = ps
 	p.mu.Unlock()
 
 	rtc, err := NewSession(p.api, cfg, RoleAcceptor, sid, fromPmid,
@@ -157,7 +163,7 @@ func (p *HostManager) startSession(fromPmid uuid.UUID, sid, offerSDP string, tur
 		func() {
 			p.logger.Info("[proxy] DataChannel closed", "sid", sid)
 			ps.close()
-			p.removeSession(fromPmid, ps)
+			p.removeSession(sid, ps)
 		},
 		p.logger,
 	)
@@ -185,7 +191,7 @@ func (p *HostManager) startSession(fromPmid uuid.UUID, sid, offerSDP string, tur
 		if err != nil {
 			p.logger.Warn("[proxy] handshake timeout; aborting", "sid", sid, "err", err)
 			ps.close()
-			p.removeSession(fromPmid, ps)
+			p.removeSession(sid, ps)
 			return
 		}
 		_ = dc
@@ -195,14 +201,21 @@ func (p *HostManager) startSession(fromPmid uuid.UUID, sid, offerSDP string, tur
 }
 
 func (p *HostManager) handleICE(fromPmid uuid.UUID, payload map[string]any) {
+	sid := signaling.GetSessionID(payload)
+	if sid == "" {
+		return
+	}
 	ic, ok := signaling.ParseIceCandidate(payload)
 	if !ok {
 		return
 	}
 	p.mu.Lock()
-	ps, ok := p.sessions[fromPmid]
+	ps, ok := p.sessions[sid]
 	p.mu.Unlock()
-	if !ok || ps.rtc == nil {
+	if !ok || ps == nil || ps.rtc == nil {
+		return
+	}
+	if ps.fromPmid != fromPmid {
 		return
 	}
 	mid := ic.SdpMid
@@ -214,11 +227,11 @@ func (p *HostManager) handleICE(fromPmid uuid.UUID, payload map[string]any) {
 	})
 }
 
-func (p *HostManager) removeSession(fromPmid uuid.UUID, ps *hostSession) {
+func (p *HostManager) removeSession(sid string, ps *hostSession) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	if cur, ok := p.sessions[fromPmid]; ok && cur == ps {
-		delete(p.sessions, fromPmid)
+	if cur, ok := p.sessions[sid]; ok && cur == ps {
+		delete(p.sessions, sid)
 	}
 }
 
@@ -228,7 +241,7 @@ func (p *HostManager) Close() {
 	for _, ps := range p.sessions {
 		all = append(all, ps)
 	}
-	p.sessions = map[uuid.UUID]*hostSession{}
+	p.sessions = map[string]*hostSession{}
 	p.mu.Unlock()
 	for _, ps := range all {
 		ps.close()
@@ -249,18 +262,28 @@ type hostSession struct {
 }
 
 func (ps *hostSession) attachTCP(target string) {
+	const maxBuffered uint64 = 1 * 1024 * 1024 // 1 MiB SCTP send queue cap
 	tcp, err := DialTCP(target,
 		func(downstream []byte) {
 			ps.mu.Lock()
 			rtc := ps.rtc
 			ps.mu.Unlock()
-			if rtc != nil {
-				_ = rtc.Send(downstream)
+			if rtc == nil {
+				return
 			}
+			// Backpressure: wait before queuing more onto SCTP. Without this,
+			// a chunky integrated-server-to-client burst (initial chunk
+			// snapshot when a player joins a heavy mod world) can overflow
+			// the Pion send queue and silently drop messages.
+			if err := rtc.WaitForBufferDrain(maxBuffered); err != nil {
+				ps.pm.logger.Warn("[proxy] backpressure wait failed", "sid", ps.sid, "err", err)
+				return
+			}
+			_ = rtc.Send(downstream)
 		},
 		func() {
 			ps.close()
-			ps.pm.removeSession(ps.fromPmid, ps)
+			ps.pm.removeSession(ps.sid, ps)
 		},
 		ps.pm.logger,
 	)

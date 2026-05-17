@@ -46,9 +46,11 @@ func NewJoinManager(sig *signaling.Client, peerPmid uuid.UUID, logger *slog.Logg
 		webrtc.NetworkTypeUDP4,
 		webrtc.NetworkTypeUDP6,
 	})
-	// Shorten ICE gathering / disconnect timeouts so Mojang's join handshake
-	// doesn't time out while we wait for slow candidates.
-	se.SetICETimeouts(3*time.Second, 8*time.Second, 1*time.Second)
+	// ICE timeouts: keep the keep-alive tight, but give failed/disconnected
+	// transitions more room — heavy modpack handshakes (Forge mod registry
+	// sync) can take 30+ seconds, during which transient ICE state churn
+	// must not abort the session.
+	se.SetICETimeouts(10*time.Second, 30*time.Second, 2*time.Second)
 	api := webrtc.NewAPI(webrtc.WithSettingEngine(se))
 
 	jm := &JoinManager{
@@ -282,11 +284,14 @@ func (s *joinSession) startInitiator() error {
 		return fmt.Errorf("turn auth: %w", err)
 	}
 	cfg := webrtc.Configuration{
-		ICEServers: []webrtc.ICEServer{{
-			URLs:       turn.URLs,
-			Username:   turn.Username,
-			Credential: turn.Password,
-		}},
+		ICEServers: []webrtc.ICEServer{
+			{URLs: []string{"stun:stun.l.google.com:19302"}},
+			{
+				URLs:       turn.URLs,
+				Username:   turn.Username,
+				Credential: turn.Password,
+			},
+		},
 	}
 
 	rtc, err := NewSession(s.jm.api, cfg, RoleInitiator, s.sessionID, s.jm.peerPmid,
@@ -332,8 +337,18 @@ func (s *joinSession) startInitiator() error {
 }
 
 func (s *joinSession) startTcpBridge() {
+	const maxBuffered uint64 = 1 * 1024 * 1024 // 1 MiB SCTP send queue cap
 	buf := make([]byte, 16*1024)
 	for {
+		// Backpressure: wait for SCTP queue to drain before reading more from
+		// MC. Without this, a fast modpack login handshake (Forge mod registry
+		// for 90+ mods) floods the queue and Pion may silently drop messages —
+		// MC handshake then fails halfway through with no error log.
+		if err := s.rtc.WaitForBufferDrain(maxBuffered); err != nil {
+			s.jm.logger.Warn("[join] backpressure wait failed", "err", err)
+			s.close()
+			return
+		}
 		n, err := s.local.Read(buf)
 		if n > 0 {
 			chunk := make([]byte, n)

@@ -13,6 +13,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"strconv"
 	"sync"
 	"time"
 
@@ -44,8 +45,9 @@ type Session struct {
 	onData     func([]byte)
 	onClose    func()
 
-	dcOpenCh   chan struct{}
-	dcOpenOnce sync.Once
+	dcOpenCh    chan struct{}
+	dcOpenOnce  sync.Once
+	closeOnce   sync.Once
 
 	warmupRemaining int
 }
@@ -82,11 +84,15 @@ func NewSession(api *webrtc.API, cfg webrtc.Configuration, role Role, sessionID 
 		s.onLocalICE(c)
 	})
 	pc.OnConnectionStateChange(func(state webrtc.PeerConnectionState) {
-		s.logger.Debug("PeerConnection state", "state", state)
+		s.logger.Info("[rtc] PeerConnection state", "sid", s.SessionID, "state", state.String())
 		if state == webrtc.PeerConnectionStateFailed || state == webrtc.PeerConnectionStateClosed {
-			if s.onClose != nil {
-				s.onClose()
-			}
+			s.fireClose()
+		}
+	})
+	pc.OnICEConnectionStateChange(func(state webrtc.ICEConnectionState) {
+		s.logger.Info("[rtc] ICE state", "sid", s.SessionID, "state", state.String())
+		if state == webrtc.ICEConnectionStateConnected || state == webrtc.ICEConnectionStateCompleted {
+			s.logSelectedCandidatePair()
 		}
 	})
 
@@ -104,17 +110,15 @@ func (s *Session) attachDataChannel(dc *webrtc.DataChannel) {
 	s.mu.Unlock()
 
 	dc.OnOpen(func() {
-		s.dcOpenOnce.Do(func() { close(s.dcOpenCh) })
 		if err := dc.Send([]byte(warmupMagic)); err != nil {
 			s.logger.Debug("[rtc] warmup send failed", "err", err)
 		} else {
 			s.logger.Debug("[rtc] warmup magic sent")
 		}
+		s.dcOpenOnce.Do(func() { close(s.dcOpenCh) })
 	})
 	dc.OnClose(func() {
-		if s.onClose != nil {
-			s.onClose()
-		}
+		s.fireClose()
 	})
 	dc.OnMessage(func(msg webrtc.DataChannelMessage) {
 		data := msg.Data
@@ -257,6 +261,88 @@ func (s *Session) Send(data []byte) error {
 		return errors.New("data channel not open")
 	}
 	return dc.Send(data)
+}
+
+// WaitForBufferDrain blocks until the SCTP send queue drops below maxBuffered,
+// or returns an error if the channel closes / is not open. Callers should use
+// this BEFORE Send() to apply TCP backpressure on the upstream socket — without
+// it, a fast local TCP feed will overflow SCTP and Pion may silently drop.
+func (s *Session) WaitForBufferDrain(maxBuffered uint64) error {
+	s.mu.Lock()
+	dc := s.dc
+	s.mu.Unlock()
+	if dc == nil {
+		return errors.New("data channel not attached")
+	}
+	for {
+		if dc.ReadyState() != webrtc.DataChannelStateOpen {
+			return errors.New("data channel not open")
+		}
+		if dc.BufferedAmount() <= maxBuffered {
+			return nil
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+}
+
+// logSelectedCandidatePair logs which ICE candidate pair won — host (LAN),
+// srflx (P2P through NAT), prflx, or relay (TURN). The latter implies all
+// bytes go through a TURN relay and bandwidth is capped by the relay server.
+func (s *Session) logSelectedCandidatePair() {
+	sctp := s.pc.SCTP()
+	if sctp == nil {
+		return
+	}
+	dtls := sctp.Transport()
+	if dtls == nil {
+		return
+	}
+	ice := dtls.ICETransport()
+	if ice == nil {
+		return
+	}
+	pair, err := ice.GetSelectedCandidatePair()
+	if err != nil || pair == nil {
+		s.logger.Info("[rtc] selected pair unavailable", "sid", s.SessionID, "err", errString(err))
+		return
+	}
+	s.logger.Info("[rtc] selected pair",
+		"sid", s.SessionID,
+		"local", pair.Local.Typ.String(),
+		"remote", pair.Remote.Typ.String(),
+		"localAddr", pair.Local.Address+":"+itoa(int(pair.Local.Port)),
+		"remoteAddr", pair.Remote.Address+":"+itoa(int(pair.Remote.Port)),
+		"path", describePath(pair.Local.Typ, pair.Remote.Typ),
+	)
+}
+
+func describePath(local, remote webrtc.ICECandidateType) string {
+	if local == webrtc.ICECandidateTypeRelay || remote == webrtc.ICECandidateTypeRelay {
+		return "TURN-relay (bandwidth limited by relay)"
+	}
+	if local == webrtc.ICECandidateTypeHost && remote == webrtc.ICECandidateTypeHost {
+		return "LAN-direct"
+	}
+	return "P2P (NAT-traversed, full bandwidth)"
+}
+
+func errString(err error) string {
+	if err == nil {
+		return ""
+	}
+	return err.Error()
+}
+
+func itoa(i int) string {
+	return strconv.Itoa(i)
+}
+
+func (s *Session) fireClose() {
+	s.closeOnce.Do(func() {
+		if s.onClose != nil {
+			s.onClose()
+		}
+	})
 }
 
 func (s *Session) Close() {

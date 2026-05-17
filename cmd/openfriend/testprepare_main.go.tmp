@@ -1,0 +1,27 @@
+package main
+
+import (
+	"bytes"
+	"fmt"
+	"image/png"
+	"os"
+
+	"jp.zpw.openfriend/internal/skinimg"
+)
+
+func main() {
+	res, err := skinimg.Prepare("/tmp/face32.png")
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	fmt.Printf("processed=%v src=%dx%d bytes=%d\n", res.Processed, res.OriginalW, res.OriginalH, len(res.PNG))
+	img, _ := png.Decode(bytes.NewReader(res.PNG))
+	b := img.Bounds()
+	fmt.Printf("output=%dx%d\n", b.Dx(), b.Dy())
+	r, g, bl, a := img.At(8, 8).RGBA()
+	fmt.Printf("pixel (8,8): r=%d g=%d b=%d a=%d\n", r>>8, g>>8, bl>>8, a>>8)
+	r, g, bl, a = img.At(0, 0).RGBA()
+	fmt.Printf("pixel (0,0): r=%d g=%d b=%d a=%d (should be transparent)\n", r>>8, g>>8, bl>>8, a>>8)
+	os.WriteFile("/tmp/skin_composed.png", res.PNG, 0o644)
+}
