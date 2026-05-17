@@ -1,4 +1,6 @@
 # OpenFriendMC — OpenFriend release hub
+<img width="1920" height="1080" alt="openfriend-all-version" src="https://github.com/user-attachments/assets/162c92c3-74a9-48fd-80e2-2f63dbb5f110" />
+
 
 Bridge Minecraft Java Edition's Friends List (snapshot 26.2+) to any TCP Minecraft server.
 
